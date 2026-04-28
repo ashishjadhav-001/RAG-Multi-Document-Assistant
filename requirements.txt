@@ -1,27 +1,9 @@
-# Core LLM + LangChain
-langchain==0.2.12
-langchain-core==0.2.43
-langchain-community==0.2.10
-
-# Mistral AI integration
-langchain-mistralai==0.1.8
-mistralai==0.4.2
-
-# Vector DB 
-chromadb==0.5.5
-
-# Embeddings & Transformers
-sentence-transformers==2.7.0
-transformers==4.44.2
-
-# Document loaders & parsing
-pypdf==4.3.1
-unstructured==0.15.0
-
-# Backend / utilities
-python-dotenv==1.0.1
-tqdm==4.66.5
-
-
-# Optional UI
-streamlit==1.37.1
+streamlit
+langchain
+langchain-community
+langchain-core
+langchain-mistralai
+mistralai
+chromadb
+pypdf
+python-dotenv
