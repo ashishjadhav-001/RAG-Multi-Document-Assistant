@@ -1,81 +1,87 @@
-from dotenv import load_dotenv
-load_dotenv()
+# rag_pipeline.py
 
-from langchain_mistralai import ChatMistralAI, MistralAIEmbeddings
+import os
 from langchain_community.vectorstores import Chroma
-from langchain_core.prompts import ChatPromptTemplate
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
 
-embedding_model = MistralAIEmbeddings(model="mistral-embed")
 
-def get_vectorstore(persist_directory: str):
-    return Chroma(
+def load_vectorstore(persist_directory, embedding_model):
+    """
+    Safely load Chroma vector store
+    """
+    if not os.path.exists(persist_directory):
+        raise FileNotFoundError("Vector DB not found. Please create it first.")
+
+    vectorstore = Chroma(
         persist_directory=persist_directory,
         embedding_function=embedding_model
     )
 
-llm = ChatMistralAI(model="mistral-small-2603")
+    return vectorstore
 
-prompt = ChatPromptTemplate.from_messages([
-    ("system",
-     """You are a helpful document assistant.
 
-Use the context to answer the question.
+def get_qa_chain(vectorstore, llm):
+    """
+    Create Retrieval QA chain using your existing LLM
+    """
 
-If the answer is partially available, answer using available information.
+    prompt_template = """
+    You are a helpful AI assistant.
 
-Only say "I could not find this in the document" if NOTHING relevant exists.
+    Answer ONLY from the provided context.
+    If the answer is not present, say:
+    "I couldn't find the answer in the provided documents."
 
-Try your best to extract useful meaning from context.
+    Context:
+    {context}
 
-Be clear and helpful."""
-     ),
-    ("human",
-     """Context:
-{context}
+    Question:
+    {question}
 
-Question:
-{question}
-""")
-])
+    Answer:
+    """
 
-def ask_question(query: str, persist_directory: str):
-    vectorstore = get_vectorstore(persist_directory)
+    prompt = PromptTemplate(
+        template=prompt_template,
+        input_variables=["context", "question"]
+    )
 
-    results = vectorstore.similarity_search_with_score(query, k=6)
-    results = sorted(results, key=lambda x: x[1])
+    retriever = vectorstore.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k": 4}
+    )
 
-    docs = []
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,  # ✅ your existing model
+        chain_type="stuff",
+        retriever=retriever,
+        return_source_documents=False,
+        chain_type_kwargs={"prompt": prompt}
+    )
 
-    # 🔥 relaxed filtering
-    for doc, score in results:
-        if score < 0.5:
-            docs.append(doc)
+    return qa_chain
 
-    # 🔥 fallback if nothing found
-    if not docs:
-        docs = [doc for doc, _ in results[:3]]
 
-    docs = docs[:3]
+def ask_question(query, persist_directory, llm, embedding_model):
+    """
+    Main function (uses your existing models)
+    """
 
-    context = "\n\n".join([doc.page_content for doc in docs])
+    try:
+        vectorstore = load_vectorstore(
+            persist_directory,
+            embedding_model
+        )
 
-    final_prompt = prompt.invoke({
-        "context": context,
-        "question": query
-    })
+        qa_chain = get_qa_chain(
+            vectorstore,
+            llm
+        )
 
-    response = llm.invoke(final_prompt)
+        result = qa_chain.invoke({"query": query})
 
-    sources = set()
-    for doc in docs:
-        source = doc.metadata.get("source", None)
-        if source:
-            sources.add(source)
+        return result["result"]
 
-    source_text = "\n".join(sources)
-
-    return f"""{response.content}
-
-📄 Source:
-{source_text}
-"""
+    except Exception as e:
+        return f"❌ Error: {str(e)}"

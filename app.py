@@ -1,12 +1,11 @@
 import streamlit as st
-
-st.set_page_config(page_title="RAG Book Assistant", layout="wide")
-
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
 
 from vector_store import create_vectorstore
 from rag_pipeline import ask_question
+
+st.set_page_config(page_title="RAG Book Assistant", layout="wide")
 
 load_dotenv()
 
@@ -22,8 +21,9 @@ if "chat_history" not in st.session_state:
 if "current_files" not in st.session_state:
     st.session_state.current_files = []
 
+# 🔥 FIX 1: Use Render-safe directory
 if "persist_directory" not in st.session_state:
-    st.session_state.persist_directory = "chroma_db/main_db"
+    st.session_state.persist_directory = "/tmp/chroma_db"
     os.makedirs(st.session_state.persist_directory, exist_ok=True)
 
 if "file_paths" not in st.session_state:
@@ -57,12 +57,16 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    os.makedirs("temp_files", exist_ok=True)
+    # 🔥 FIX 2: Use /tmp for files
+    os.makedirs("/tmp/temp_files", exist_ok=True)
+
+    # 🔥 FIX 3: Reset paths to avoid duplicates
+    st.session_state.file_paths = []
 
     new_files_added = False
 
     for file in uploaded_files:
-        path = f"temp_files/{file.name}"
+        path = f"/tmp/temp_files/{file.name}"
 
         if file.name not in st.session_state.current_files:
             with open(path, "wb") as f:
