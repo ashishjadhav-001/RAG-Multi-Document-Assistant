@@ -13,7 +13,7 @@ st.title("📚 RAG Book Assistant")
 st.write("Upload PDFs and ask questions from the documents")
 
 # -------------------------------
-# Session State
+# Session State Initialization
 # -------------------------------
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
@@ -21,7 +21,6 @@ if "chat_history" not in st.session_state:
 if "current_files" not in st.session_state:
     st.session_state.current_files = []
 
-# 🔥 FIX 1: Use Render-safe directory
 if "persist_directory" not in st.session_state:
     st.session_state.persist_directory = "/tmp/chroma_db"
     os.makedirs(st.session_state.persist_directory, exist_ok=True)
@@ -57,11 +56,7 @@ uploaded_files = st.file_uploader(
 )
 
 if uploaded_files:
-    # 🔥 FIX 2: Use /tmp for files
     os.makedirs("/tmp/temp_files", exist_ok=True)
-
-    # 🔥 FIX 3: Reset paths to avoid duplicates
-    st.session_state.file_paths = []
 
     new_files_added = False
 
@@ -78,22 +73,40 @@ if uploaded_files:
 
     if new_files_added:
         st.session_state.db_ready = False
-        st.success("✅ New PDFs added. Please update the database.")
+        st.success("✅ New PDFs added. Click below to update database.")
 
 # -------------------------------
 # Update Vector DB
 # -------------------------------
+st.divider()
+
 if st.session_state.file_paths:
-    if not st.session_state.db_ready:
-        if st.button("Update Vector Database"):
+
+    st.write(f"📂 Files ready: {len(st.session_state.file_paths)}")
+
+    if st.button("🚀 Update Vector Database", use_container_width=True):
+
+        try:
             with st.spinner("Updating database..."):
                 create_vectorstore(
                     pdf_paths=st.session_state.file_paths,
                     persist_directory=st.session_state.persist_directory
                 )
-                st.session_state.db_ready = True
 
-            st.success("✅ Database ready!")
+            st.session_state.db_ready = True
+            st.rerun()
+
+        except Exception as e:
+            st.session_state.db_ready = False
+            st.error(f"❌ Error while creating DB:\n{str(e)}")
+
+else:
+    st.warning("⚠️ Upload PDFs first")
+
+# -------------------------------
+# DEBUG
+# -------------------------------
+st.caption(f"DEBUG → DB Ready: {st.session_state.db_ready}")
 
 # -------------------------------
 # Chat Section
@@ -105,20 +118,40 @@ if st.session_state.db_ready:
     query = st.chat_input("Ask questions from your PDFs...")
 
     if query:
-        with st.spinner("Thinking..."):
-            response = ask_question(
-                query=query,
-                persist_directory=st.session_state.persist_directory
-            )
+        try:
+            with st.spinner("Thinking..."):
+                response, sources = ask_question(
+                    query=query,
+                    persist_directory=st.session_state.persist_directory
+                )
 
+            # Store chat history
             st.session_state.chat_history.append(("user", query))
-            st.session_state.chat_history.append(("ai", response))
+            st.session_state.chat_history.append(("ai", response, sources))
 
-    for role, message in st.session_state.chat_history:
+        except Exception as e:
+            st.error(f"❌ Error while answering:\n{str(e)}")
+
+    # -------------------------------
+    # Display Chat
+    # -------------------------------
+    for item in st.session_state.chat_history:
+        role = item[0]
+
         if role == "user":
-            st.chat_message("user").write(message)
+            st.chat_message("user").write(item[1])
+
         else:
-            st.chat_message("assistant").write(message)
+            response = item[1]
+            sources = item[2]
+
+            with st.chat_message("assistant"):
+                st.write(response)
+
+                if sources:
+                    st.markdown("**📄 Source PDFs:**")
+                    for s in sources:
+                        st.markdown(f"- {s}")
 
 else:
     st.info("📌 Upload PDFs and click 'Update Vector Database' to start.")

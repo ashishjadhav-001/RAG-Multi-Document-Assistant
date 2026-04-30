@@ -1,12 +1,23 @@
 import os
 from langchain_community.vectorstores import Chroma
-from langchain.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings  # or your embedding model
+from langchain_mistralai import MistralAIEmbeddings
+from dotenv import load_dotenv
 
+load_dotenv()
 
-# ✅ Initialize embedding model (change if needed)
-embedding_model = OpenAIEmbeddings()
+# ✅ Load API key
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+
+if not MISTRAL_API_KEY:
+    raise ValueError("❌ MISTRAL_API_KEY not found")
+
+# ✅ Embedding model
+embedding_model = MistralAIEmbeddings(
+    api_key=MISTRAL_API_KEY,
+    model="mistral-embed"
+)
 
 
 def load_and_split_pdfs(pdf_paths):
@@ -14,7 +25,14 @@ def load_and_split_pdfs(pdf_paths):
 
     for pdf in pdf_paths:
         loader = PyPDFLoader(pdf)
-        documents.extend(loader.load())
+        docs = loader.load()
+
+        # 🔥 Add clean metadata
+        for doc in docs:
+            doc.metadata["file_name"] = os.path.basename(pdf)
+            doc.metadata["page"] = doc.metadata.get("page", "N/A")
+
+        documents.extend(docs)
 
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
@@ -25,24 +43,17 @@ def load_and_split_pdfs(pdf_paths):
 
 
 def create_vectorstore(pdf_paths, persist_directory=None):
-    """
-    Creates or loads a Chroma vector store safely.
-    """
 
-    # ✅ Fix 1: Use safe default directory (Render-compatible)
     if persist_directory is None:
         persist_directory = "/tmp/chroma_db"
 
-    # ✅ Fix 2: Ensure directory exists
     os.makedirs(persist_directory, exist_ok=True)
 
-    # ✅ Fix 3: Initialize vectorstore
     vectorstore = Chroma(
         persist_directory=persist_directory,
         embedding_function=embedding_model
     )
 
-    # ✅ Fix 4: Only add documents if DB is empty
     try:
         existing_count = vectorstore._collection.count()
     except Exception:
@@ -50,7 +61,7 @@ def create_vectorstore(pdf_paths, persist_directory=None):
 
     if existing_count == 0:
         if not pdf_paths:
-            raise ValueError("No PDF files provided to create vector store.")
+            raise ValueError("No PDF files provided.")
 
         documents = load_and_split_pdfs(pdf_paths)
 
@@ -64,19 +75,14 @@ def create_vectorstore(pdf_paths, persist_directory=None):
 
 
 def load_vectorstore(persist_directory=None):
-    """
-    Loads an existing vectorstore safely.
-    """
 
     if persist_directory is None:
         persist_directory = "/tmp/chroma_db"
 
     if not os.path.exists(persist_directory):
-        raise FileNotFoundError("Vector DB not found. Create it first.")
+        raise FileNotFoundError("Vector DB not found.")
 
-    vectorstore = Chroma(
+    return Chroma(
         persist_directory=persist_directory,
         embedding_function=embedding_model
     )
-
-    return vectorstore
