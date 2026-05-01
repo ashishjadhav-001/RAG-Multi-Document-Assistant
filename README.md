@@ -2,6 +2,7 @@
 
 A powerful **Retrieval-Augmented Generation (RAG)** application that allows users to upload multiple PDF documents and ask questions. The system retrieves relevant context from documents and generates accurate answers using LLMs.
 
+* Live app🚀: https://rag-multi-document-assistant.onrender.com
 ---
 
 ## 🚀 Features
