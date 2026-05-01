@@ -1,12 +1,16 @@
 # rag_pipeline.py
 
 import os
-from langchain_community.vectorstores import Chroma
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
-from langchain_mistralai import ChatMistralAI, MistralAIEmbeddings
 from dotenv import load_dotenv
 
+from langchain_community.vectorstores import Chroma
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+
+from langchain_mistralai import ChatMistralAI, MistralAIEmbeddings
+
+# ✅ Load environment variables
 load_dotenv()
 
 # ✅ Load API key
@@ -29,9 +33,12 @@ llm = ChatMistralAI(
 )
 
 
+# =========================
+# Load Vector Store
+# =========================
 def load_vectorstore(persist_directory):
     if not os.path.exists(persist_directory):
-        raise FileNotFoundError("Vector DB not found. Please create it first.")
+        raise FileNotFoundError("❌ Vector DB not found. Please create it first.")
 
     return Chroma(
         persist_directory=persist_directory,
@@ -39,7 +46,10 @@ def load_vectorstore(persist_directory):
     )
 
 
-def get_qa_chain(vectorstore):
+# =========================
+# Create Runnable QA Chain
+# =========================
+def get_qa_chain(retriever):
 
     prompt_template = """
     You are a helpful AI assistant.
@@ -57,41 +67,51 @@ def get_qa_chain(vectorstore):
     Answer:
     """
 
-    prompt = PromptTemplate(
-        template=prompt_template,
-        input_variables=["context", "question"]
+    prompt = PromptTemplate.from_template(prompt_template)
+
+    # ✅ Runnable pipeline
+    qa_chain = (
+        {
+            "context": retriever,
+            "question": RunnablePassthrough()
+        }
+        | prompt
+        | llm
+        | StrOutputParser()
     )
 
-    retriever = vectorstore.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": 4}
-    )
-
-    return RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=retriever,
-        return_source_documents=True,
-        chain_type_kwargs={"prompt": prompt}
-    )
+    return qa_chain
 
 
+# =========================
+# Ask Question Function
+# =========================
 def ask_question(query, persist_directory):
     try:
+        # Load DB
         vectorstore = load_vectorstore(persist_directory)
-        qa_chain = get_qa_chain(vectorstore)
 
-        result = qa_chain.invoke({"query": query})
+        # Create retriever
+        retriever = vectorstore.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": 4}
+        )
 
-        answer = result["result"]
+        # Get relevant documents (for sources)
+        docs = retriever.invoke(query)
 
-        # ✅ Extract ONLY PDF names (no page numbers)
+        # Create chain
+        qa_chain = get_qa_chain(retriever)
+
+        # Get answer
+        answer = qa_chain.invoke(query)
+
+        # Extract sources
         sources = set()
 
-        for doc in result["source_documents"]:
+        for doc in docs:
             file_name = doc.metadata.get("file_name")
 
-            # fallback if metadata missing
             if not file_name:
                 source_path = doc.metadata.get("source", "")
                 file_name = os.path.basename(source_path)
